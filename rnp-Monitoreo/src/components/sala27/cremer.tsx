@@ -1,519 +1,315 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Gauge, Circle, Timer, Package, Activity, AlertTriangle, Clock, BarChart2 } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
+import { Gauge } from 'lucide-react';
 
+// Configuration object with readonly type
+const CONFIG = {
+  WS: {
+    URL: 'ws://localhost:5000',
+    PING_INTERVAL: 30000,
+    RECONNECT_DELAY: 3000,
+    MAX_RECONNECT_ATTEMPTS: 5,
+    NORMAL_CLOSURE_CODE: 1000,
+    BACKOFF_MULTIPLIER: 1.5
+  },
+  MONITOR: {
+    DEBOUNCE_DELAY: 100,
+    STATE_UPDATE_THRESHOLD: 50,
+    TIME_UPDATE_INTERVAL: 1000 // Update evaery second
+  }
+} as const;
+
+// Types
+interface CremerProps {
+  nombre?: string;
+  onStatusChange?: (status: ConnectionStatus) => void;
+  onError?: (error: Error) => void;
+}
 
 interface GPIOStates {
-    Verde: boolean;    // Pin 21
-    Amarillo: boolean; // Pin 4
-    Rojo: boolean;     // Pin 27
-    Contador: boolean; // Pin 13
+  Verde: boolean;
+  Amarillo: boolean;
+  Rojo: boolean;
+  Contador: boolean;
+}
+
+interface WSMessage {
+  timestamp: string;
+  estados: GPIOStates;
+}
+
+type ConnectionStatus = 'Conectado' | 'Desconectado' | 'Reconectando' | 'Error';
+
+// Utility functions
+const formatCurrentTime = (): string => {
+  const now = new Date();
+  const hours = now.getHours().toString().padStart(2, '0');
+  const minutes = now.getMinutes().toString().padStart(2, '0');
+  const seconds = now.getSeconds().toString().padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+};
+
+// WebSocket Manager Class
+class WebSocketManager {
+  private ws: WebSocket | null = null;
+  private reconnectAttempts = 0;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
+  private pingInterval: NodeJS.Timeout | null = null;
+  private backoffDelay = CONFIG.WS.RECONNECT_DELAY;
+  private isIntentionalClosure = false;
+
+  constructor(
+    private url: string,
+    private onMessage: (data: WSMessage) => void,
+    private onStatusChange: (status: ConnectionStatus) => void,
+    private onError: (error: Error) => void
+  ) {}
+
+  connect(): void {
+    if (this.ws?.readyState === WebSocket.CONNECTING) return;
+
+    try {
+      this.isIntentionalClosure = false;
+      this.ws = new WebSocket(this.url);
+      this.setupEventListeners();
+      this.startPingInterval();
+    } catch (error) {
+      this.handleError(new Error(`Connection error: ${error instanceof Error ? error.message : 'Unknown error'}`));
+    }
   }
-  
-  interface WSMessage {
-    timestamp: string;
-    estados: GPIOStates;
-  }
-  
-  interface Timers {
-    active: number;
-    stopped: number;
-  }
-  
-  interface ProductionStats {
-    totalUnits: number;
-    ratePerMinute: number;
-    ratePerHour: number;
-    efficiency: number;
-    quality: number;
-  }
-  
-  interface BatchInfo {
-    id: string;
-    startTime: Date;
-    endTime?: Date;
-    totalUnits: number;
-    targetUnits?: number;
-  }
-  
-  interface CremerProps {
-    nombre?: string;
-  }
-  
-  interface BackendData {
-    machine_id: number;
-    estados: GPIOStates;
-    timestamp: string;
-    state: string;
-    active_time: number;
-    stopped_time: number;
-    units_count: number;
-    production_stats: {
-      rate_per_minute: number;
-      rate_per_hour: number;
-      efficiency: number;
-      quality: number;
+
+  private setupEventListeners(): void {
+    if (!this.ws) return;
+
+    this.ws.onopen = this.handleOpen.bind(this);
+    this.ws.onclose = this.handleClose.bind(this);
+    this.ws.onerror = (event: Event) => {
+      const wsError = event instanceof ErrorEvent ? event.error : new Error('WebSocket error');
+      this.handleError(wsError);
     };
-    batch_id?: string;
+    this.ws.onmessage = this.handleMessage.bind(this);
   }
 
-// Configuración
-const RASPBERRY_IP = '192.168.20.10';
-const WS_PORT = 8765;
-const BACKEND_URL = 'http://localhost:3000/api';  // Añadido /api al final
-const SYNC_INTERVAL = 30000; // 30 segundos
-const MACHINE_ID = 1;
+  private handleOpen(): void {
+    this.reconnectAttempts = 0;
+    this.backoffDelay = CONFIG.WS.RECONNECT_DELAY;
+    this.onStatusChange('Conectado');
+  }
 
-const Cremer: React.FC<CremerProps> = ({ nombre = "Cremer" }) => {
-  // Estados básicos
+  private handleClose(event: CloseEvent): void {
+    this.cleanup();
+    if (!this.isIntentionalClosure && event.code !== CONFIG.WS.NORMAL_CLOSURE_CODE) {
+      this.scheduleReconnect();
+    } else {
+      this.onStatusChange('Desconectado');
+    }
+  }
+
+  private handleError(error: Error): void {
+    console.error('[WebSocketManager] Error:', error);
+    this.onError(error);
+    this.onStatusChange('Error');
+  }
+
+  private handleMessage(event: MessageEvent): void {
+    try {
+      const data = JSON.parse(event.data) as WSMessage;
+      this.onMessage(data);
+    } catch (error) {
+      this.handleError(
+        new Error(`Message processing error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      );
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectAttempts >= CONFIG.WS.MAX_RECONNECT_ATTEMPTS) {
+      this.handleError(new Error(`Maximum reconnection attempts (${CONFIG.WS.MAX_RECONNECT_ATTEMPTS}) reached`));
+      return;
+    }
+
+    this.onStatusChange('Reconectando');
+    
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+    }
+
+    const delay = this.backoffDelay * Math.pow(CONFIG.WS.BACKOFF_MULTIPLIER, this.reconnectAttempts);
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectAttempts++;
+      console.log(`[WebSocketManager] Reconnection attempt ${this.reconnectAttempts} after ${delay}ms`);
+      this.connect();
+    }, delay);
+  }
+
+  private startPingInterval(): void {
+    this.cleanup();
+    this.pingInterval = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        try {
+          this.ws.send(JSON.stringify({ type: 'ping', timestamp: new Date().toISOString() }));
+        } catch (error) {
+          this.handleError(new Error('Ping error'));
+        }
+      }
+    }, CONFIG.WS.PING_INTERVAL);
+  }
+
+  private cleanup(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+  }
+
+  disconnect(): void {
+    this.isIntentionalClosure = true;
+    this.cleanup();
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.close(CONFIG.WS.NORMAL_CLOSURE_CODE, 'Normal disconnection');
+      } catch (error) {
+        console.error('[WebSocketManager] Disconnection error:', error);
+      }
+      this.ws = null;
+    }
+  }
+}
+
+// Subcomponents
+const StatusLight: React.FC<{ active: boolean; color: string }> = memo(({ active, color }) => (
+  <div className={`luz ${color} ${active ? 'activa' : ''}`} />
+));
+
+StatusLight.displayName = 'StatusLight';
+
+const ConnectionStatus: React.FC<{ status: ConnectionStatus }> = memo(({ status }) => (
+  <div className={`conexion ${status === 'Conectado' ? 'activa' : 'inactiva'}`}>
+    <div className="dot" />
+    <span>WS: {status}</span>
+  </div>
+));
+
+ConnectionStatus.displayName = 'ConnectionStatus';
+
+// Main Component
+const Cremer: React.FC<CremerProps> = memo(({ 
+  nombre = "Cremer",
+  onStatusChange,
+  onError 
+}) => {
   const [gpioStates, setGpioStates] = useState<GPIOStates>({
     Verde: false,
     Amarillo: false,
     Rojo: false,
     Contador: false
   });
+  const [status, setStatus] = useState<ConnectionStatus>('Desconectado');
+  const [currentTime, setCurrentTime] = useState<string>(formatCurrentTime());
   
-  const [wsStatus, setWsStatus] = useState('Desconectado');
-  const [lastUpdate, setLastUpdate] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [timers, setTimers] = useState<Timers>({ active: 0, stopped: 0 });
-  const [lastStateChange, setLastStateChange] = useState<Date | null>(null);
-  const [currentState, setCurrentState] = useState<'active' | 'stopped' | 'idle'>('idle');
-  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const wsManager = useRef<WebSocketManager | null>(null);
+  const lastStateUpdate = useRef<number>(Date.now());
 
-  // Estados de producción
-  const [productionCount, setProductionCount] = useState(0);
-  const [productionStats, setProductionStats] = useState<ProductionStats>({
-    totalUnits: 0,
-    ratePerMinute: 0,
-    ratePerHour: 0,
-    efficiency: 0,
-    quality: 100
-  });
-  const [currentBatch, setCurrentBatch] = useState<BatchInfo | null>(null);
-  const [lastCounterState, setLastCounterState] = useState(false);
-
-  // Referencias
-  const wsRef = useRef<WebSocket | null>(null);
-  const syncIntervalRef = useRef<NodeJS.Timeout>();
-  const timerIntervalRef = useRef<NodeJS.Timeout>();
-
-  // Utilidades
-  const formatTime = useCallback((seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  // Handlers
+  const handleMessage = useCallback((data: WSMessage) => {
+    const now = Date.now();
+    if (now - lastStateUpdate.current > CONFIG.MONITOR.STATE_UPDATE_THRESHOLD) {
+      setGpioStates(data.estados);
+      lastStateUpdate.current = now;
+    }
   }, []);
 
-  const isActive = useCallback((states: GPIOStates): boolean => {
-    return states.Verde || (states.Verde && states.Amarillo);
+  const handleStatusChange = useCallback((newStatus: ConnectionStatus) => {
+    setStatus(newStatus);
+    onStatusChange?.(newStatus);
+  }, [onStatusChange]);
+
+  const handleError = useCallback((error: Error) => {
+    console.error('[Cremer] Error:', error);
+    onError?.(error);
+  }, [onError]);
+
+  // WebSocket Effect
+  useEffect(() => {
+    wsManager.current = new WebSocketManager(
+      CONFIG.WS.URL,
+      handleMessage,
+      handleStatusChange,
+      handleError
+    );
+    wsManager.current.connect();
+
+    const handleOnline = () => wsManager.current?.connect();
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      wsManager.current?.disconnect();
+    };
+  }, [handleMessage, handleStatusChange, handleError]);
+
+  // Current Time Update Effect
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setCurrentTime(formatCurrentTime());
+    }, CONFIG.MONITOR.TIME_UPDATE_INTERVAL);
+
+    return () => clearInterval(intervalId);
   }, []);
 
-  const isStopped = useCallback((states: GPIOStates): boolean => {
-    return states.Rojo || states.Amarillo || (states.Rojo && states.Amarillo && states.Verde);
-  }, []);
-
-  const updateProductionStats = useCallback(() => {
-    const timeRunning = timers.active / 60; // Tiempo en minutos
-    const ratePerMinute = timeRunning > 0 ? productionCount / timeRunning : 0;
-    const totalTime = timers.active + timers.stopped;
-    const efficiency = totalTime > 0 ? (timers.active / totalTime) * 100 : 0;
-
-    setProductionStats({
-      totalUnits: productionCount,
-      ratePerMinute,
-      ratePerHour: ratePerMinute * 60,
-      efficiency,
-      quality: 100 // Puedes ajustar esto según tus necesidades
-    });
-  }, [timers, productionCount]);
-
-  // Función para enviar datos al backend
-  const sendToBackend = useCallback(async () => {
-    try {
-      const backendData: BackendData = {
-        machine_id: MACHINE_ID,
-        estados: gpioStates,
-        timestamp: new Date().toISOString(),
-        state: currentState,
-        active_time: timers.active,
-        stopped_time: timers.stopped,
-        units_count: productionCount,
-        production_stats: {
-          rate_per_minute: productionStats.ratePerMinute,
-          rate_per_hour: productionStats.ratePerHour,
-          efficiency: productionStats.efficiency,
-          quality: productionStats.quality
-        }
-      };
-  
-      if (currentBatch) {
-        backendData.batch_id = currentBatch.id;
-      }
-  
-      console.log('Enviando datos:', backendData);
-  
-      const response = await fetch(`${BACKEND_URL}/machine-state`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(backendData)
-      });
-  
-      if (!response.ok) {
-        throw new Error(`Error enviando datos: ${response.status} ${response.statusText}`);
-      }
-  
-      const responseData = await response.json();
-      setLastSync(new Date());
-      console.log('Datos enviados exitosamente:', responseData);
-  
-    } catch (error) {
-      console.error('Error completo:', error);
-      setError(`Error sincronizando: ${error instanceof Error ? error.message : 'Error desconocido'}`);
-    }
-  }, [gpioStates, currentState, timers, productionCount, productionStats, currentBatch]);
-
-  // Gestión de WebSocket
-  const setupWebSocket = useCallback(() => {
-    const ws = new WebSocket(`ws://${RASPBERRY_IP}:${WS_PORT}`);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setWsStatus('Conectado');
-      setError(null);
-      setLastStateChange(new Date());
-      console.log('WebSocket conectado a Raspberry Pi');
-    };
-
-    ws.onclose = () => {
-      setWsStatus('Desconectado');
-      setError('Conexión perdida');
-      setTimeout(setupWebSocket, 5000);
-    };
-
-    ws.onerror = () => {
-      setError('Error en conexión WebSocket');
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data: WSMessage = JSON.parse(event.data);
-        setGpioStates(data.estados);
-        setLastUpdate(data.timestamp);
-      } catch (e) {
-        console.error('Error procesando mensaje:', e);
-      }
-    };
-
-    return ws;
-  }, []);
-
-  // Gestión de lotes
-  const startNewBatch = async () => {
-    try {
-      const batchId = `BATCH-${Date.now()}`;
-      const newBatch: BatchInfo = {
-        id: batchId,
-        startTime: new Date(),
-        totalUnits: 0
-      };
-
-      const response = await fetch(`${BACKEND_URL}/api/production/start`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          machine_id: MACHINE_ID,
-          batch_id: batchId,
-          start_time: newBatch.startTime.toISOString()
-        })
-      });
-
-      if (response.ok) {
-        setCurrentBatch(newBatch);
-        setProductionCount(0);
-        updateProductionStats();
-      } else {
-        throw new Error('Error iniciando lote');
-      }
-    } catch (error) {
-      console.error('Error iniciando nuevo lote:', error);
-      setError('Error iniciando nuevo lote');
-    }
-  };
-
-  const endCurrentBatch = async () => {
-    if (!currentBatch) return;
-
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/production/${currentBatch.id}/end`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          units_produced: productionCount,
-          end_time: new Date().toISOString(),
-          stats: productionStats
-        })
-      });
-
-      if (response.ok) {
-        setCurrentBatch(null);
-        setProductionCount(0);
-        updateProductionStats();
-      } else {
-        throw new Error('Error finalizando lote');
-      }
-    } catch (error) {
-      console.error('Error finalizando lote:', error);
-      setError('Error finalizando lote');
-    }
-  };
-
-  // Efectos
-  useEffect(() => {
-    const ws = setupWebSocket();
-    return () => {
-      ws.close();
-    };
-  }, [setupWebSocket]);
-
-  useEffect(() => {
-    const syncInterval = setInterval(() => {
-      if (wsStatus === 'Conectado') {
-        console.log('Enviando datos al backend...', new Date().toLocaleTimeString());
-        sendToBackend();
-      }
-    }, SYNC_INTERVAL);
-
-    return () => {
-      if (syncIntervalRef.current) {
-        clearInterval(syncIntervalRef.current);
-      }
-    };
-    return () => {
-        clearInterval(syncInterval);
-      };
-  }, [wsStatus, sendToBackend]);
-
-  useEffect(() => {
-    if (gpioStates.Contador && !lastCounterState) {
-      setProductionCount(prev => prev + 1);
-      updateProductionStats();
-    }
-    setLastCounterState(gpioStates.Contador);
-  }, [gpioStates.Contador, lastCounterState, updateProductionStats]);
-
-  useEffect(() => {
-    const newState = isActive(gpioStates) 
-      ? 'active' 
-      : isStopped(gpioStates) 
-        ? 'stopped' 
-        : 'idle';
-
-    if (newState !== currentState) {
-      setCurrentState(newState);
-      setLastStateChange(new Date());
-      sendToBackend();
-    }
-  }, [gpioStates, currentState, isActive, isStopped, sendToBackend]);
-
-  useEffect(() => {
-    timerIntervalRef.current = setInterval(() => {
-      if (lastStateChange && currentState !== 'idle') {
-        setTimers((prev: Timers) => {
-          if (currentState === 'active') {
-            return { ...prev, active: prev.active + 1 };
-          } else if (currentState === 'stopped') {
-            return { ...prev, stopped: prev.stopped + 1 };
-          }
-          return prev;
-        });
-      }
-    }, 1000);
-
-    return () => {
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-      }
-    };
-  }, [currentState, lastStateChange]);
-
-  const getMachineState = () => {
-    if (gpioStates.Rojo) return 'stopped';
-    if (gpioStates.Verde) return 'active';
-    return 'waiting';
-  };
-
-  return (
-    <div className="maquina-card">
-      <div className={`estado-indicador ${getMachineState()}`} />
-      
-      <div className="maquina-header">
-        <div className="maquina-icon">
-          <Gauge size={40} />
-        </div>
-        <h3>{nombre}</h3>
+  // Memoized components
+  const renderHeader = React.useMemo(() => (
+    <div className="maquina-header">
+      <div className="header-left">
+        <Gauge className="maquina-icon" size={20} />
+        <h2>{nombre}</h2>
       </div>
-
-      <div className="semaforo-container">
-        <div className="semaforo">
-          <div className={`luz roja ${gpioStates.Rojo ? 'activa' : ''}`}>
-            <div className="luz-interior" />
-          </div>
-          <div className={`luz amarilla ${gpioStates.Amarillo ? 'activa' : ''}`}>
-            <div className="luz-interior" />
-          </div>
-          <div className={`luz verde ${gpioStates.Verde ? 'activa' : ''}`}>
-            <div className="luz-interior" />
-          </div>
-        </div>
-      </div>
-
-      <div className="stats-grid">
-        <div className="stat-card">
-          <Package size={20} className="stat-icon" />
-          <div className="stat-content">
-            <span className="stat-label">Producción Total</span>
-            <span className="stat-value">{productionCount}</span>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <Activity size={20} className="stat-icon" />
-          <div className="stat-content">
-            <span className="stat-label">Unidades/Hora</span>
-            <span className="stat-value">{Math.round(productionStats.ratePerHour)}</span>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <BarChart2 size={20} className="stat-icon" />
-          <div className="stat-content">
-            <span className="stat-label">Eficiencia</span>
-            <span className="stat-value">{Math.round(productionStats.efficiency)}%</span>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <Clock size={20} className="stat-icon" />
-          <div className="stat-content">
-            <span className="stat-label">Tiempo Operativo</span>
-            <span className="stat-value">{formatTime(timers.active)}</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="timers-container">
-        <div className="timer active">
-          <Timer size={16} className="timer-icon" />
-          <span className="timer-label">Tiempo Activo:</span>
-          <span className="timer-value">{formatTime(timers.active)}</span>
-        </div>
-        <div className="timer stopped">
-          <Timer size={16} className="timer-icon" />
-          <span className="timer-label">Tiempo Parado:</span>
-          <span className="timer-value">{formatTime(timers.stopped)}</span>
-        </div>
-      </div>
-
-      {currentBatch && (
-        <div className="batch-info">
-          <div className="batch-header">
-            <span className="batch-label">Lote Actual: {currentBatch.id}</span>
-            <span className="batch-time">
-              Inicio: {currentBatch.startTime.toLocaleTimeString()}
-            </span>
-          </div>
-          <div className="batch-stats">
-            <div className="batch-stat">
-              <span className="stat-label">Unidades</span>
-              <span className="stat-value">{productionCount}</span>
-            </div>
-            <div className="batch-stat">
-              <span className="stat-label">Tiempo</span>
-              <span className="stat-value">
-                {formatTime(Math.floor((new Date().getTime() - currentBatch.startTime.getTime()) / 1000))}
-              </span>
-            </div>
-            <div className="batch-stat">
-              <span className="stat-label">Ritmo</span>
-              <span className="stat-value">
-                {Math.round(productionStats.ratePerHour)} u/h
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="batch-controls">
-        <button 
-          onClick={startNewBatch}
-          disabled={!!currentBatch || wsStatus !== 'Conectado'}
-          className="control-button start"
-        >
-          Iniciar Nuevo Lote
-        </button>
-        <button 
-          onClick={endCurrentBatch}
-          disabled={!currentBatch || wsStatus !== 'Conectado'}
-          className="control-button end"
-        >
-          Finalizar Lote
-        </button>
-      </div>
-
-      <div className="status-container">
-        <div className="status-row">
-          <div className={`status-indicator ${wsStatus === 'Conectado' ? 'active' : 'inactive'}`}>
-            <Circle size={8} className="status-dot" />
-            <span className="status-label">Conexión Raspberry Pi</span>
-            <span className="status-value">{wsStatus}</span>
-          </div>
-
-          <div className={`status-indicator ${lastSync ? 'active' : 'inactive'}`}>
-            <Circle size={8} className="status-dot" />
-            <span className="status-label">Backend</span>
-            <span className="status-value">
-              {lastSync ? 'Sincronizado' : 'Sin sincronizar'}
-            </span>
-          </div>
-        </div>
-
-        {error && (
-          <div className="error-message">
-            <AlertTriangle size={16} />
-            <span>{error}</span>
-          </div>
-        )}
-
-        <div className="timestamps">
-          {lastUpdate && (
-            <div className="timestamp">
-              <span className="timestamp-label">Última actualización:</span>
-              <span className="timestamp-value">
-                {new Date(lastUpdate).toLocaleTimeString()}
-              </span>
-            </div>
-          )}
-          {lastSync && (
-            <div className="timestamp">
-              <span className="timestamp-label">Última sincronización:</span>
-              <span className="timestamp-value">
-                {lastSync.toLocaleTimeString()}
-              </span>
-            </div>
-          )}
-        </div>
+      <div className="semaforo">
+        <StatusLight active={gpioStates.Rojo} color="roja" />
+        <StatusLight active={gpioStates.Amarillo} color="amarilla" />
+        <StatusLight active={gpioStates.Verde} color="verde" />
       </div>
     </div>
+  ), [nombre, gpioStates]);
 
-    
+  const renderContent = React.useMemo(() => (
+    <div className="timers-container">
+      <div className={`timer ${status === 'Conectado' ? 'active' : status === 'Error' ? 'stopped' : ''}`}>
+        <div className="timer-left">
+          <Gauge className="timer-icon" />
+          <span className="timer-label">Estado</span>
+        </div>
+        <div className="timer-value">{status}</div>
+      </div>
+    </div>
+  ), [status]);
+
+  const renderFooter = React.useMemo(() => (
+    <div className="footer">
+      <ConnectionStatus status={status} />
+      <span className="current-time">
+        {currentTime}
+      </span>
+    </div>
+  ), [status, currentTime]);
+
+  return (
+    <div 
+      className="maquina-card"
+      role="button"
+      tabIndex={0}
+      aria-label={`Máquina ${nombre}`}
+    >
+      {renderHeader}
+      {renderContent}
+      {renderFooter}
+    </div>
   );
-};
+});
+
+Cremer.displayName = 'Cremer';
 
 export default Cremer;

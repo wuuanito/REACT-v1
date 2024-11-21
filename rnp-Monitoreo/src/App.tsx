@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar';
 import Sala27 from './pages/Sala27';
 import Softgel from './pages/Softgel';
 import Produccion from './pages/Produccion';
+import Ponderales from './pages/Ponderales';
 import './styles/App.scss';
 
 interface HomePageProps {}
@@ -52,6 +53,7 @@ const App: React.FC = () => {
             <Route path="/sala27" element={<Sala27 />} />
             <Route path="/softgel" element={<Softgel />} />
             <Route path="/produccion" element={<Produccion />} />
+            <Route path="/ponderales" element={<Ponderales />} />
           </Routes>
         </main>
       </div>

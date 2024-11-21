@@ -76,3 +76,58 @@ export interface GPIOStates {
     duration: number;
   }
   
+
+  // types.ts
+export type ModoOperacion = 'Produciendo' | 'Parada' | 'Standby';
+export type EstadoMaquina = 'Funcionando' | 'Detenida' | 'Mantenimiento' | 'Error';
+
+export interface OrdenFabricacion {
+  numero: string;
+  descripcion: string;
+  inicio: string;
+  fin: string | null;
+  pausaActual: string | null;
+  tiempoTotal: number;
+  unidadesBuenas: number;
+  unidadesMalas: number;
+  porcentajeCompletado: number;
+}
+
+export interface TiemposProduccion {
+  produciendo: number;
+  parada: number;
+  standby: number;
+  total: number;
+}
+
+export interface EstadisticasMaquina {
+  temperatura: number;
+  presion: number;
+  velocidad: number;
+  eficiencia: number;
+  estado: EstadoMaquina;
+  ultimoMantenimiento: string;
+  proximoMantenimiento: string;
+  horasProduccionTotal: number;
+  tasaProduccion: number;
+}
+
+export interface DatosMaquina {
+  id: string;
+  nombre: string;
+  modelo: string;
+  numeroSerie: string;
+  fechaInstalacion: string;
+  estadisticas: EstadisticasMaquina;
+  alertas: Alerta[];
+  ordenActual: OrdenFabricacion;
+  tiempos: TiemposProduccion;
+  modoOperacion: ModoOperacion;
+}
+
+export interface Alerta {
+  id: string;
+  tipo: 'advertencia' | 'error' | 'info';
+  mensaje: string;
+  fecha: string;
+}

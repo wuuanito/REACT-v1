@@ -1,15 +1,45 @@
-// src/styles/App.scss
+// App.scss
 @use "sass:color";
-@import './components/maquinas';
-@import './components/cremer';
-@import './pages/sala27';
 
-// Variables
-$sidebar-width: 250px;
-$primary-color: #004d2c;
+// Corporate Colors
+$primary-color: #1b9736;
+$primary-light: lighten($primary-color, 10%);
+$primary-dark: darken($primary-color, 10%);
 $text-color: #ffffff;
-$hover-color: #006d3f;
+$dark-bg: #fdfdfd;
+$card-bg: #ffffff;
+$success-color: #22c55e;
+$warning-color: #f59e0b;
+$error-color: #ef4444;
+$info-color: #3b82f6;
 
+// Layout
+$sidebar-width: 250px;
+$border-color: rgba(255, 255, 255, 0.1);
+
+// Breakpoints
+$breakpoints: (
+  'xs': 375px,
+  'sm': 640px,
+  'md': 768px,
+  'lg': 1024px,
+  'xl': 1280px,
+  '2xl': 1536px
+);
+
+// Mixins
+@mixin respond-to($breakpoint) {
+  @media (min-width: map-get($breakpoints, $breakpoint)) {
+    @content;
+  }
+}
+
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+}
+
+// Reset
 * {
   margin: 0;
   padding: 0;
@@ -17,8 +47,10 @@ $hover-color: #006d3f;
 }
 
 body {
-  font-family: 'Arial', sans-serif;
-  background-color: #fff;
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: $dark-bg;
+  color: $text-color;
+  -webkit-font-smoothing: antialiased;
 }
 
 .app-container {
@@ -29,64 +61,69 @@ body {
 // Sidebar
 .sidebar {
   width: $sidebar-width;
-  background-color: $primary-color;
-  color: $text-color;
+  background: linear-gradient(180deg, $primary-dark 0%, $primary-color 100%);
   position: fixed;
   height: 100vh;
   left: 0;
   z-index: 1000;
-}
+  transition: transform 0.3s ease;
+  box-shadow: 4px 0 15px rgba(0, 0, 0, 0.2);
 
-// Header del sidebar
-.sidebar-header {
-    padding: 1.5rem;
-    background-color: $primary-color;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  
-    .company-logo {
-      width: 60px;  // Aumentado
-      height: 60px; // Aumentado
-      margin-bottom: 1rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background-color: white;
-  
-      svg {
-        width: 100%;
-        height: 100%;
-        image-rendering: -webkit-optimize-contrast;
-        image-rendering: crisp-edges;
-      }
-    }
-
-    .company-name {
-        font-size: 1.2rem;
-        font-weight: bold;
-        color: $text-color;
-        margin-bottom: 0.25rem;
-        letter-spacing: 0.5px;
-      }
+  @media (max-width: map-get($breakpoints, 'md')) {
+    transform: translateX(-100%);
     
-      .company-subtitle {
-        font-size: 0.85rem;
-        color: rgba(255, 255, 255, 0.8);
-      }
+    &.open {
+      transform: translateX(0);
+    }
+  }
 }
 
-// Navegación
+.sidebar-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  
+  .company-logo {
+    width: 60px;
+    height: 60px;
+    margin: 0 auto 1rem;
+    background-color: white;
+    border-radius: 12px;
+    padding: 0.5rem;
+    @include flex-center;
+    justify-content: center;
+    
+    svg {
+      width: 100%;
+      height: 100%;
+    }
+  }
+
+  .company-name {
+    font-size: 1.2rem;
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: 0.25rem;
+  }
+
+  .company-subtitle {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.8);
+    text-align: center;
+  }
+}
+
 .sidebar-nav {
-  margin-top: 1rem;
+  padding: 1rem 0.75rem;
 
   a {
-    display: flex;
-    align-items: center;
+    @include flex-center;
     padding: 0.875rem 1rem;
     color: $text-color;
     text-decoration: none;
     font-size: 0.9rem;
-    background-color: transparent;
-    transition: background-color 0.2s ease;
+    border-radius: 0.5rem;
+    transition: all 0.2s ease;
+    margin-bottom: 0.25rem;
 
     svg {
       width: 20px;
@@ -100,11 +137,11 @@ body {
 
     &.active {
       background-color: rgba(255, 255, 255, 0.15);
+      font-weight: 500;
     }
   }
 }
 
-// Mobile toggle button
 .mobile-toggle {
   position: fixed;
   top: 1rem;
@@ -115,68 +152,54 @@ body {
   color: white;
   width: 40px;
   height: 40px;
-  border-radius: 4px;
+  border-radius: 8px;
   display: none;
-  align-items: center;
+  @include flex-center;
   justify-content: center;
   cursor: pointer;
 
-  @media (max-width: 768px) {
+  &:hover {
+    background-color: $primary-light;
+  }
+
+  @media (max-width: map-get($breakpoints, 'md')) {
     display: flex;
   }
 }
 
-// Contenido principal
 .main-content {
   flex: 1;
-  padding: 2rem;
   margin-left: $sidebar-width;
+  min-height: 100vh;
+  transition: margin-left 0.3s ease;
 
-  @media (max-width: 768px) {
+  @media (max-width: map-get($breakpoints, 'md')) {
     margin-left: 0;
-    width: 100%;
     padding-top: 4rem;
-  }
-
-  h1 {
-    color: #333;
-    margin-bottom: 1rem;
-    font-size: 1.5rem;
-  }
-
-  p {
-    color: #666;
   }
 }
 
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  backdrop-filter: blur(4px);
 
-// Media queries para móvil
-@media (max-width: 768px) {
-  .sidebar {
-    transform: translateX(-100%);
-    transition: transform 0.3s ease;
-
-    &.open {
-      transform: translateX(0);
-    }
-  }
-
-  .sidebar-overlay {
+  @media (max-width: map-get($breakpoints, 'md')) {
     display: block;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    z-index: 999;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s ease;
-
+    
     &.visible {
       opacity: 1;
       pointer-events: auto;
     }
   }
 }
+
+@import './components/cremer';
+@import './pages/sala27';
+@import './pages/machine-details';
