@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import Cremer from '../components/sala27/cremer';
-import CremerDetails from '../components/sala27/machineDetails/CremerDetails';
+import Cremer from '../components/sala27/CREMER/cremer';
+import CremerDetails from '../components/sala27/CREMER/CremerDetails';
+
+
 
 const Sala27: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
@@ -23,9 +25,9 @@ const Sala27: React.FC = () => {
       </div>
 
       <CremerDetails 
-        visible={modalVisible}
-        onClose={() => setModalVisible(false)}
-      />
+  visible={modalVisible}
+  onClose={() => setModalVisible(false)}
+/>
     </div>
   );
 };

@@ -1,7 +1,7 @@
 // src/components/Sidebar.tsx
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Box, Building2, BarChart3, Menu,Scale  } from 'lucide-react';
+import { Box, Building2, BarChart3, Menu,Scale,Droplets    } from 'lucide-react';
 import { SidebarProps } from '../types';
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggle }) => {
@@ -37,6 +37,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggle }) => {
           <Scale strokeWidth={1.5} size={4} />
           Ponderales
           </NavLink>
+          <NavLink to="/osmosis">
+          <Droplets  strokeWidth={1.5} size={4} />
+          Osmosis
+          </NavLink>
+
         </nav>
       </div>
     </>

@@ -4,7 +4,7 @@ import { Gauge } from 'lucide-react';
 // Configuration object with readonly type
 const CONFIG = {
   WS: {
-    URL: 'ws://localhost:5000',
+    URL: 'ws://192.168.20.10:8765',
     PING_INTERVAL: 30000,
     RECONNECT_DELAY: 3000,
     MAX_RECONNECT_ATTEMPTS: 5,
@@ -215,11 +215,12 @@ const Cremer: React.FC<CremerProps> = memo(({
 
   // Handlers
   const handleMessage = useCallback((data: WSMessage) => {
-    const now = Date.now();
-    if (now - lastStateUpdate.current > CONFIG.MONITOR.STATE_UPDATE_THRESHOLD) {
-      setGpioStates(data.estados);
-      lastStateUpdate.current = now;
-    }
+    setGpioStates({
+      Verde: data.estados.Verde,
+      Amarillo: data.estados.Amarillo,
+      Rojo: data.estados.Rojo,
+      Contador: data.estados.Contador,
+    });
   }, []);
 
   const handleStatusChange = useCallback((newStatus: ConnectionStatus) => {
