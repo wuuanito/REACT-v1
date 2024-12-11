@@ -8,6 +8,7 @@ import Sala27 from './pages/Sala27';
 import Softgel from './pages/Softgel';
 import Produccion from './pages/Produccion';
 import Ponderales from './pages/Ponderales';
+import Osmosis from './pages/Osmosis';
 import './styles/App.scss';
 
 // Configuración del cliente de React Query
@@ -68,6 +69,8 @@ const App: React.FC = () => {
               <Route path="/softgel" element={<Softgel />} />
               <Route path="/produccion" element={<Produccion />} />
               <Route path="/ponderales" element={<Ponderales />} />
+              <Route path="/osmosis" element={<Osmosis />} />
+
             </Routes>
           </main>
         </div>

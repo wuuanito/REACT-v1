@@ -211,7 +211,6 @@ const Cremer: React.FC<CremerProps> = memo(({
   const [currentTime, setCurrentTime] = useState<string>(formatCurrentTime());
   
   const wsManager = useRef<WebSocketManager | null>(null);
-  const lastStateUpdate = useRef<number>(Date.now());
 
   // Handlers
   const handleMessage = useCallback((data: WSMessage) => {

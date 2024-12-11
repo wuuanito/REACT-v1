@@ -42,21 +42,14 @@ $breakpoints: (
 // Reset
 * {
   margin: 0;
-  padding: 0;
-  box-sizing: border-box;
 }
 
 body {
   font-family: 'Inter', system-ui, sans-serif;
   background-color: $dark-bg;
-  color: $text-color;
   -webkit-font-smoothing: antialiased;
 }
 
-.app-container {
-  display: flex;
-  min-height: 100vh;
-}
 
 // Sidebar
 .sidebar {
@@ -168,9 +161,7 @@ body {
 }
 
 .main-content {
-  flex: 1;
   margin-left: $sidebar-width;
-  min-height: 100vh;
   transition: margin-left 0.3s ease;
 
   @media (max-width: map-get($breakpoints, 'md')) {
@@ -202,4 +193,3 @@ body {
 
 @import './components/cremer';
 @import './pages/sala27';
-@import './pages/machine-details';
