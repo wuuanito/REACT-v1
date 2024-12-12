@@ -16,8 +16,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggle }) => {
       <div className={`sidebar ${isOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
          
-          <h1 className="company-name">RIOJA NATURE PHARMA</h1>
-          <div className="company-subtitle">Sistema de Control Corporativo</div>
+        <h1 className="company-name" style={{ color: 'white' }}>RIOJA NATURE PHARMA</h1>
+        <div className="company-subtitle">Sistema de Control Corporativo</div>
         </div>
         
         <nav className="sidebar-nav">
