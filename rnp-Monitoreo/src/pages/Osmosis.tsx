@@ -32,11 +32,6 @@ interface NotificationMessage {
   timestamp: number;
 }
 
-interface EmailNotification {
-  subject: string;
-  message: string;
-}
-
 // Configuration
 const CONFIG = {
   ws: {
@@ -47,11 +42,6 @@ const CONFIG = {
     maxReconnectAttempts: 10,
     pingInterval: 30000,
     pongTimeout: 5000,
-  },
-  email: {
-    url: 'http://localhost:4000/notify',
-    retryAttempts: 3,
-    retryDelay: 1000,
   },
   notifications: {
     maxNotifications: 5,
@@ -92,41 +82,6 @@ const CONFIG = {
     },
   ] as AlertConfig[],
 } as const;
-
-// Email Service
-class EmailService {
-  private static async sendNotification({ subject, message }: EmailNotification, retryCount = 0): Promise<boolean> {
-    try {
-      const response = await fetch(CONFIG.email.url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject, message }),
-      });
-
-      if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
-      return true;
-
-    } catch (error) {
-      console.error('Error enviando email:', error);
-      
-      if (retryCount < CONFIG.email.retryAttempts) {
-        await new Promise(resolve => setTimeout(resolve, CONFIG.email.retryDelay));
-        return EmailService.sendNotification({ subject, message }, retryCount + 1);
-      }
-      
-      return false;
-    }
-  }
-
-  public static async notify(alertConfig: AlertConfig): Promise<boolean> {
-    const notification: EmailNotification = {
-      subject: `Sistema Osmosis - ${alertConfig.label}`,
-      message: `${alertConfig.label}: ${alertConfig.description}`,
-    };
-    
-    return await this.sendNotification(notification);
-  }
-}
 
 // WebSocket Service
 class StableWebSocket {
@@ -367,48 +322,39 @@ const OsmosisMonitor: React.FC = () => {
     }, CONFIG.notifications.displayDuration);
   }, []);
 
-  const handleSignalChange = useCallback(async (key: SignalKey, value: boolean) => {
-    const alertConfig = CONFIG.alerts.find(alert => alert.key === key);
-    if (!alertConfig || !value) return;
-
-    addNotification('alert', `${alertConfig.label}: ${alertConfig.description}`);
-    
-    try {
-      const emailSent = await EmailService.notify(alertConfig);
-      if (emailSent) {
-        addNotification('success', `Email enviado: ${alertConfig.label}`);
-      } else {
-        addNotification('error', `Error al enviar email: ${alertConfig.label}`);
-      }
-    } catch (error) {
-      console.error('Error en notificación:', error);
-      addNotification('error', 'Error al enviar notificación');
-    }
-  }, [addNotification]);
-
   const handleMessage = useCallback((event: MessageEvent) => {
+    console.log('Raw WebSocket message:', event.data);
+  
     try {
       const message: WSMessage = JSON.parse(event.data);
-      if (!message.estados) {
-        throw new Error('Mensaje sin datos de estados');
-      }
-
-      setSignals(prevSignals => {
-        const newSignals = { ...message.estados };
-        Object.entries(newSignals).forEach(([key, value]) => {
-          if (value !== prevSignals[key as SignalKey]) {
-            handleSignalChange(key as SignalKey, value);
-          }
+      console.log('Parsed message:', message);
+  
+      // Asegurarse de que hay datos de estados
+      if (message.estados && typeof message.estados === 'object') {
+        setSignals(prevSignals => {
+          const newSignals = { ...message.estados };
+          
+          // Notificaciones para cambios de estado
+          Object.entries(newSignals).forEach(([key, value]) => {
+            if (value !== prevSignals[key as SignalKey]) {
+              const alertConfig = CONFIG.alerts.find(alert => alert.key === key);
+              if (alertConfig && value) {
+                addNotification('alert', `${alertConfig.label}: ${alertConfig.description}`);
+              }
+            }
+          });
+          
+          return newSignals;
         });
-        return newSignals;
-      });
-
-      setLastUpdate(message.timestamp);
+  
+        // Actualizar última actualización
+        setLastUpdate(message.timestamp);
+      }
     } catch (error) {
       console.error('Error en mensaje:', error);
       addNotification('error', 'Error al procesar mensaje del servidor');
     }
-  }, [handleSignalChange, addNotification]);
+  }, [addNotification]);
 
   useEffect(() => {
     isComponentMounted.current = true;
@@ -431,137 +377,132 @@ const OsmosisMonitor: React.FC = () => {
 
   return (
     <div className="osmosis-container">
-      <style>
-        {`
-          .osmosis-container {
-            min-height: 100vh;
-            background-color: #f3f4f6;
-            padding: 2rem;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-          }
+      <style>{`
+        .osmosis-container {
+          min-height: 100vh;
+          background-color: #f3f4f6;
+          padding: 32px;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+        }
 
-          .monitor-panel {
-            background-color: white;
-            border-radius: 0.75rem;
-            padding: 2rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            max-width: 1024px;
-            width: 100%;
-          }
+        .monitor-panel {
+          background-color: white;
+          border-radius: 12px;
+          padding: 32px;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          max-width: 1024px;
+          width: 100%;
+        }
 
-          .monitor-title {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: #2563eb;
-            text-align: center;
-            margin-bottom: 2rem;
-          }
+        .monitor-title {
+          font-size: 24px;
+          font-weight: 700;
+          color: #2563eb;
+          text-align: center;
+          margin-bottom: 32px;
+        }
 
-          .monitor-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 2rem;
-          }
+        .monitor-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 32px;
+        }
 
-          @media (min-width: 768px) {
-            .monitor-grid {
-              grid-template-columns: 1fr 1fr;
-            }
-              .alerts-container {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-          }
+        .alerts-container {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
 
-          .status-panel {
-            background-color: #f9fafb;
-            padding: 1.5rem;
-            border-radius: 0.5rem;
-            border: 1px solid #e5e7eb;
-          }
+        .status-panel {
+          background-color: #f9fafb;
+          padding: 24px;
+          border-radius: 8px;
+          border: 1px solid #e5e7eb;
+        }
 
-          .status-title {
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: #1e40af;
-            margin-bottom: 1rem;
-          }
+        .status-title {
+          font-size: 18px;
+          font-weight: 600;
+          color: #1e40af;
+          margin-bottom: 16px;
+        }
 
-          .status-item {
-            margin-bottom: 0.5rem;
-            font-size: 0.875rem;
-            color: #4b5563;
-          }
+        .status-content {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
 
-          .status-error {
-            color: #dc2626;
-            font-weight: 600;
-          }
+        .status-item {
+          font-size: 14px;
+          color: #4b5563;
+          margin-bottom: 8px;
+        }
 
-          .status-content {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-          }
+        .status-error {
+          color: #dc2626;
+          font-weight: 600;
+        }
 
-          .status-indicator {
-            width: 0.75rem;
-            height: 0.75rem;
-            border-radius: 50%;
-            background-color: #9ca3af;
-            transition: background-color 0.3s ease;
-          }
+        .status-indicator {
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background-color: #9ca3af;
+          transition: background-color 0.3s ease;
+        }
 
-          .status-indicator.active {
-            background-color: white;
-            animation: pulse 2s infinite;
-          }
+        .status-indicator.active {
+          background-color: white;
+          animation: pulse 2s infinite;
+        }
 
-          .alert-panel {
-            padding: 1rem;
-            border-radius: 0.5rem;
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            transition: all 0.3s ease;
-          }
+        .alert-panel {
+          padding: 16px;
+          border-radius: 8px;
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          transition: all 0.3s ease;
+        }
 
-          .alert-panel.active {
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-          }
+        .alert-panel.active {
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
 
-          .alert-content {
-            flex: 1;
-          }
+        .alert-content {
+          flex: 1;
+        }
 
-          .alert-title {
-            font-weight: 600;
-            font-size: 1rem;
-            margin-bottom: 0.25rem;
-          }
+        .alert-title {
+          font-weight: 600;
+          font-size: 16px;
+          margin-bottom: 4px;
+        }
 
-          .alert-description {
-            font-size: 0.875rem;
-            opacity: 0.9;
-          }
+        .alert-description {
+          font-size: 14px;
+          opacity: 0.9;
+        }
 
-          .notification-panel {
+      .notification-panel {
             position: fixed;
-            top: 1rem;
-            right: 1rem;
+            top: 16px;
+            right: 16px;
             z-index: 50;
             display: flex;
             flex-direction: column;
-            gap: 0.5rem;
+            gap: 8px;
           }
 
           .notification-item {
-            padding: 1rem;
-            border-radius: 0.5rem;
+            padding: 16px;
+            border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            max-width: 20rem;
+            max-width: 320px;
             animation: slideIn 0.3s ease-out;
           }
 
@@ -586,27 +527,27 @@ const OsmosisMonitor: React.FC = () => {
           }
 
           .notification-message {
-            font-size: 0.875rem;
+            font-size: 14px;
             color: #374151;
           }
 
           .server-info {
-            margin-top: 1rem;
-            padding-top: 1rem;
+            margin-top: 16px;
+            padding-top: 16px;
             border-top: 1px solid #e5e7eb;
           }
 
           .server-info .status-item {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            font-size: 0.75rem;
+            gap: 8px;
+            font-size: 12px;
             color: #6b7280;
           }
 
           .server-info .icon {
-            width: 1rem;
-            height: 1rem;
+            width: 16px;
+            height: 16px;
           }
 
           @keyframes pulse {
@@ -626,99 +567,97 @@ const OsmosisMonitor: React.FC = () => {
             }
           }
 
-          /* Responsive adjustments */
+          @media (min-width: 768px) {
+            .monitor-grid {
+              grid-template-columns: 1fr 1fr;
+            }
+          }
+
           @media (max-width: 640px) {
             .osmosis-container {
-              padding: 1rem;
+              padding: 16px;
             }
 
             .monitor-panel {
-              padding: 1rem;
+              padding: 16px;
             }
 
             .status-panel {
-              padding: 1rem;
+              padding: 16px;
             }
 
             .notification-panel {
-              left: 1rem;
-              right: 1rem;
+              left: 16px;
+              right: 16px;
             }
 
             .notification-item {
               max-width: none;
             }
           }
-        `}
-      </style>
+        `}</style>
 
-      <div className="monitor-panel">
-        <h2 className="monitor-title">
-          Sistema de Monitorización Osmosis
-        </h2>
+        <div className="monitor-panel">
+          <h2 className="monitor-title">
+            Sistema de Monitorización Osmosis
+          </h2>
 
-        <NotificationPanel notifications={notifications} />
+          <NotificationPanel notifications={notifications} />
 
-        <div className="monitor-grid">
-          <div className="alerts-container">
-            {CONFIG.alerts.map((config) => (
-              <AlertPanel
-                key={config.key}
-                config={config}
-                active={signals[config.key]}
-              />
-            ))}
-          </div>
+          <div className="monitor-grid">
+            <div className="alerts-container">
+              {CONFIG.alerts.map((config) => (
+                <AlertPanel
+                  key={config.key}
+                  config={config}
+                  active={signals[config.key]}
+                />
+              ))}
+            </div>
 
-          <div className="status-panel">
-            <h3 className="status-title">
-              Estado del Sistema
-            </h3>
-            
-            <div className="status-content">
-              <div className={`status-item ${
-                connectionStatus.includes('Error') ? 'status-error' : ''
-              }`}>
-                Estado: {connectionStatus}
-              </div>
+            <div className="status-panel">
+              <h3 className="status-title">
+                Estado del Sistema
+              </h3>
               
-              <div className="status-item">
-                Última actualización: {
-                  lastUpdate 
-                    ? new Date(lastUpdate).toLocaleString() 
-                    : 'Sin actualizaciones'
-                }
-              </div>
-              
-              <div className="status-item">
-                Intentos de reconexión: {reconnectAttempts}/{CONFIG.ws.maxReconnectAttempts}
-              </div>
-
-              <div className="server-info">
+              <div className="status-content">
+                <div className={`status-item ${
+                  connectionStatus.includes('Error') ? 'status-error' : ''
+                }`}>
+                  Estado: {connectionStatus}
+                </div>
+                
                 <div className="status-item">
-                  <Mail className="icon" />
-                  Servicio de Email: {
-                    connectionStatus === 'Conectado' 
-                      ? 'Activo' 
-                      : 'Desconectado'
+                  Última actualización: {
+                    lastUpdate 
+                      ? new Date(lastUpdate).toLocaleString() 
+                      : 'Sin actualizaciones'
                   }
                 </div>
+                
                 <div className="status-item">
-                  Servidor: {CONFIG.email.url}
+                  Intentos de reconexión: {reconnectAttempts}/{CONFIG.ws.maxReconnectAttempts}
                 </div>
-                <div className="status-item">
-                  WebSocket: {CONFIG.ws.url}
-                </div>
-                <div className="status-item">
-                  Email Service: {new URL(CONFIG.email.url).origin}
+
+                <div className="server-info">
+                  <div className="status-item">
+                    <Mail className="icon" />
+                    Estado de conexión: {
+                      connectionStatus === 'Conectado' 
+                        ? 'Activo' 
+                        : 'Desconectado'
+                    }
+                  </div>
+                  <div className="status-item">
+                    WebSocket: {CONFIG.ws.url}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
 };
 
 export default memo(OsmosisMonitor);

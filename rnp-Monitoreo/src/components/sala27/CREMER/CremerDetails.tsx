@@ -598,7 +598,7 @@ const CremerDetails: React.FC<CremerDetailsProps> = React.memo(({ visible, onClo
   const theme = useTheme();
   
   // Estados
-  const [historicalData, setHistoricalData] = useState<Array<{
+  const [, setHistoricalData] = useState<Array<{
     time: string;
     Verde: number;
     Amarillo: number;
