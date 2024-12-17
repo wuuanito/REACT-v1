@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
-import { AlertTriangle, Activity, Server, Droplet, Mail } from 'lucide-react';
+import { Activity, Droplet, Mail,ServerCrash, AlertCircle, Zap, Heater, Clock } from 'lucide-react';
+import bwtLogo from './bwt.png';  // Importamos el logo
 
 // Types
-type SignalKey = 'AlertaRoja' | 'Demanda' | 'FalloEquipo' | 'DepositoBajo';
+type SignalKey = 'AlertaRoja' | 'Demanda' | 'FalloEquipo' | 'DepositoBajo' |'Conductividad';
 
 interface SignalStates {
   AlertaRoja: boolean;
   Demanda: boolean;
   FalloEquipo: boolean;
   DepositoBajo: boolean;
+  Conductividad: boolean;
+
 }
 
 interface WSMessage {
@@ -23,8 +26,16 @@ interface AlertConfig {
   description: string;
   bgColor: string;
   activeColor: string;
-}
+  inverse?: boolean; // Añadida la propiedad inverse como opcional
 
+}
+interface LogEntry {
+  id: number;
+  timestamp: string;
+  event: string;
+  status: string;
+  type: 'error' | 'warning' | 'success' | 'info';
+}
 interface NotificationMessage {
   id: string;
   type: 'error' | 'warning' | 'success' | 'alert';
@@ -35,7 +46,8 @@ interface NotificationMessage {
 // Configuration
 const CONFIG = {
   ws: {
-    url: 'ws://192.168.20.105:8765',
+    url: 'ws://192.168.20.103:8765',
+    logsUrl: 'http://192.168.11.19:8000/api/logs',
     initialReconnectDelay: 1000,
     maxReconnectDelay: 30000,
     reconnectBackoffMultiplier: 1.5,
@@ -47,42 +59,65 @@ const CONFIG = {
     maxNotifications: 5,
     displayDuration: 5000,
   },
-  alerts: [
-    {
-      key: 'DepositoBajo',
-      label: 'Depósito Bajo',
-      icon: Droplet,
-      description: 'Nivel de depósito por debajo del límite',
-      bgColor: '#fef2f2',
-      activeColor: '#ef4444',
-    },
-    {
-      key: 'AlertaRoja',
-      label: 'Alerta Roja',
-      icon: AlertTriangle,
-      description: 'Situación crítica detectada',
-      bgColor: '#fef2f2',
-      activeColor: '#dc2626',
-    },
-    {
-      key: 'Demanda',
-      label: 'Demanda',
-      icon: Activity,
-      description: 'Sistema en demanda activa',
-      bgColor: '#fffbeb',
-      activeColor: '#f59e0b',
-    },
-    {
-      key: 'FalloEquipo',
-      label: 'Fallo Equipo',
-      icon: Server,
-      description: 'Detectado fallo en el equipamiento',
-      bgColor: '#faf5ff',
-      activeColor: '#7c3aed',
-    },
-  ] as AlertConfig[],
-} as const;
-
+  logs: {
+    fetchInterval: 60000, // Fetch logs every minute
+    maxEntries: 100,
+    pageSize: 10,
+  },
+    alerts: [
+      {
+        key: 'DepositoBajo',
+        label: 'Depósito Bajo',
+        icon: AlertCircle,
+        description: '',
+        bgColor: '#fef2f2',
+        activeColor: '#dc2626'
+      },
+      {
+        key: 'AlertaRoja',
+        label: 'Funcionamiento Dosificacion',
+        icon: Droplet,
+        description: '',
+        bgColor: '#f0fdf4',
+        activeColor: '#16a34a',
+        inverse: true // Añadido para indicar lógica inversa
+      },
+      {
+        key: 'Demanda',
+        label: 'INHIBIT REGENERACION',
+        icon: Activity,
+        description: '',
+        bgColor: '#fefce8',
+        activeColor: '#d97706'
+      },
+      {
+        key: 'FalloEquipo',
+        label: 'ALARMA ph / fx',
+        icon: ServerCrash,
+        description: '',
+        bgColor: '#faf5ff',
+        activeColor: '#7c3aed'
+      },
+      {
+        key: 'Conductividad',
+        label: 'FALLO BWT',
+        icon: Zap,
+        description: '',
+        bgColor: '#ecfeff',
+        activeColor: '#0891b2'
+      },
+      {
+        key: 'MotorBomba',
+        label: 'Motor de Bomba',
+        icon: Heater,
+        description: '',
+        bgColor: '#fef2f2',
+        activeColor: '#dc2626',
+        inverse: true // Añadido para indicar lógica inversa
+      }
+    ] as AlertConfig[],
+  } as const;
+  
 // WebSocket Service
 class StableWebSocket {
   private ws: WebSocket | null = null;
@@ -245,6 +280,7 @@ class StableWebSocket {
   }
 }
 
+
 // Memoized Components
 const StatusIndicator = memo<{ active: boolean }>(({ active }) => (
   <div className={`status-indicator ${active ? 'active' : ''}`} />
@@ -284,22 +320,292 @@ const NotificationPanel = memo<{ notifications: NotificationMessage[] }>(({ noti
   </div>
 ));
 NotificationPanel.displayName = 'NotificationPanel';
+const LogsPanel = memo<{ logs: LogEntry[], error?: string }>(({ logs, error }) => (
+  <div className="logs-panel">
+    <div className="logs-header">
+      <h3 className="logs-title">
+        Registros del Sistema
+        <Clock className="icon" size={20} />
+      </h3>
+    </div>
+
+    {error ? (
+      <div className="error-message">
+        {error}
+      </div>
+    ) : (
+      <div className="logs-wrapper">
+        <div className="logs-container">
+          <table className="logs-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Evento</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.length > 0 ? (
+                logs.map((log) => (
+                  <tr key={log.id} className={`log-entry ${log.type}`}>
+                    <td className="date-cell">
+                      {new Date(log.timestamp).toLocaleString()}
+                    </td>
+                    <td className="event-cell">
+                      <div className="event-content">
+                        {log.event}
+                      </div>
+                    </td>
+                    <td className="status-cell">
+                      <span className={`status-badge ${log.type}`}>
+                        {log.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={3} className="empty-message">
+                    No hay registros disponibles
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="scroll-indicator">
+          <div className="scroll-progress"></div>
+        </div>
+      </div>
+    )}
+
+    <style>{`
+      .logs-panel {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        margin: 20px 0;
+        overflow: hidden;
+      }
+
+      .logs-header {
+        padding: 16px;
+        border-bottom: 1px solid #e5e7eb;
+      }
+
+      .logs-title {
+        color: #1e40af;
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .logs-wrapper {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .logs-container {
+        max-height: 500px;
+        overflow: auto;
+        position: relative;
+      }
+
+      .logs-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        min-width: 600px;
+      }
+
+      .logs-table thead {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #f9fafb;
+      }
+
+      .logs-table th {
+        padding: 12px 16px;
+        text-align: left;
+        font-weight: 600;
+        color: #4b5563;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        border-bottom: 1px solid #e5e7eb;
+      }
+
+      .logs-table td {
+        padding: 12px 16px;
+        border-bottom: 1px solid #e5e7eb;
+        font-size: 14px;
+      }
+
+      .date-cell {
+        white-space: nowrap;
+        width: 180px;
+      }
+
+      .event-cell {
+        min-width: 200px;
+      }
+
+      .event-content {
+        word-break: break-word;
+        max-width: 400px;
+      }
+
+      .status-cell {
+        white-space: nowrap;
+        width: 120px;
+      }
+
+      .status-badge {
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        display: inline-block;
+      }
+
+      .log-entry:hover {
+        background-color: #f9fafb;
+      }
+
+      .log-entry.error {
+        color: #dc2626;
+      }
+
+      .log-entry.warning {
+        color: #d97706;
+      }
+
+      .log-entry.success {
+        color: #16a34a;
+      }
+
+      .log-entry.info {
+        color: #2563eb;
+      }
+
+      .status-badge.error {
+        background-color: #fef2f2;
+      }
+
+      .status-badge.warning {
+        background-color: #fffbeb;
+      }
+
+      .status-badge.success {
+        background-color: #f0fdf4;
+      }
+
+      .status-badge.info {
+        background-color: #eff6ff;
+      }
+
+      .empty-message {
+        text-align: center;
+        color: #6b7280;
+        padding: 24px;
+      }
+
+      .error-message {
+        padding: 16px;
+        color: #dc2626;
+        background-color: #fef2f2;
+      }
+
+      .scroll-indicator {
+        height: 2px;
+        background-color: #e5e7eb;
+        position: relative;
+      }
+
+      .scroll-progress {
+        height: 100%;
+        background-color: #3b82f6;
+        width: 0;
+        transition: width 0.2s;
+      }
+
+      /* Estilos responsivos */
+      @media screen and (max-width: 768px) {
+        .logs-container {
+          margin: 0 -16px;
+        }
+
+        .logs-table {
+          font-size: 13px;
+        }
+
+        .logs-table td, 
+        .logs-table th {
+          padding: 10px 12px;
+        }
+
+        .date-cell {
+          width: 140px;
+        }
+
+        .event-content {
+          max-width: 200px;
+        }
+
+        .status-cell {
+          width: 100px;
+        }
+      }
+
+      @media screen and (max-width: 480px) {
+        .logs-panel {
+          margin: 10px 0;
+          border-radius: 0;
+        }
+
+        .date-cell {
+          width: 120px;
+        }
+
+        .event-content {
+          max-width: 150px;
+        }
+
+        .status-badge {
+          padding: 2px 6px;
+          font-size: 11px;
+        }
+      }
+    `}</style>
+  </div>
+));
+
+LogsPanel.displayName = 'LogsPanel';
 
 const OsmosisMonitor: React.FC = () => {
-  const [signals, setSignals] = useState<SignalStates>({
+   // All useState hooks need to be called first and in the same order
+   const [signals, setSignals] = useState<SignalStates>({
     AlertaRoja: false,
     Demanda: false,
     FalloEquipo: false,
     DepositoBajo: false,
+    Conductividad: false,
   });
   const [connectionStatus, setConnectionStatus] = useState<string>('Iniciando...');
   const [lastUpdate, setLastUpdate] = useState<string>('');
   const [notifications, setNotifications] = useState<NotificationMessage[]>([]);
   const [reconnectAttempts, setReconnectAttempts] = useState<number>(0);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [, setIsLoadingLogs] = useState<boolean>(true);
   
+  // Refs after state
   const wsRef = useRef<StableWebSocket | null>(null);
   const isComponentMounted = useRef(true);
-
   const addNotification = useCallback((type: NotificationMessage['type'], message: string) => {
     if (!isComponentMounted.current) return;
 
@@ -322,19 +628,25 @@ const OsmosisMonitor: React.FC = () => {
     }, CONFIG.notifications.displayDuration);
   }, []);
 
+
   const handleMessage = useCallback((event: MessageEvent) => {
-    console.log('Raw WebSocket message:', event.data);
-  
     try {
       const message: WSMessage = JSON.parse(event.data);
-      console.log('Parsed message:', message);
-  
-      // Asegurarse de que hay datos de estados
+      
       if (message.estados && typeof message.estados === 'object') {
         setSignals(prevSignals => {
           const newSignals = { ...message.estados };
           
-          // Notificaciones para cambios de estado
+          // Invertir la lógica para las señales específicas
+          newSignals.DepositoBajo = !newSignals.DepositoBajo;
+          
+          // Manejar señales inversas según la configuración
+          CONFIG.alerts.forEach(alert => {
+            if (alert.inverse && newSignals[alert.key] !== undefined) {
+              newSignals[alert.key] = !newSignals[alert.key];
+            }
+          });
+          
           Object.entries(newSignals).forEach(([key, value]) => {
             if (value !== prevSignals[key as SignalKey]) {
               const alertConfig = CONFIG.alerts.find(alert => alert.key === key);
@@ -347,12 +659,31 @@ const OsmosisMonitor: React.FC = () => {
           return newSignals;
         });
   
-        // Actualizar última actualización
         setLastUpdate(message.timestamp);
       }
     } catch (error) {
       console.error('Error en mensaje:', error);
       addNotification('error', 'Error al procesar mensaje del servidor');
+    }
+  }, [addNotification]);
+  const fetchLogs = useCallback(async () => {
+    if (!isComponentMounted.current) return;
+  
+    try {
+      setIsLoadingLogs(true);
+      const response = await fetch(CONFIG.ws.logsUrl);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      setLogs(data.logs || []);
+    } catch (error) {
+      console.error('Error fetching logs:', error);
+      addNotification('error', 'Error al cargar los registros del sistema');
+    } finally {
+      setIsLoadingLogs(false);
     }
   }, [addNotification]);
 
@@ -374,7 +705,18 @@ const OsmosisMonitor: React.FC = () => {
       }
     };
   }, [handleMessage]);
-
+  useEffect(() => {
+    // Initial fetch
+    fetchLogs();
+    
+    // Set up interval
+    const interval = setInterval(fetchLogs, CONFIG.logs.fetchInterval);
+    
+    // Cleanup
+    return () => {
+      clearInterval(interval);
+    };
+  }, [fetchLogs]);
   return (
     <div className="osmosis-container">
       <style>{`
@@ -386,6 +728,23 @@ const OsmosisMonitor: React.FC = () => {
           justify-content: center;
           align-items: center;
         }
+           .monitor-title {
+          font-size: 24px;
+          font-weight: 700;
+          color: #2563eb;
+          text-align: center;
+          margin-bottom: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 16px;
+        }
+
+        .title-logo {
+          height: 40px;
+          width: auto;
+          object-fit: contain;
+        }
 
         .monitor-panel {
           background-color: white;
@@ -395,6 +754,53 @@ const OsmosisMonitor: React.FC = () => {
           max-width: 1024px;
           width: 100%;
         }
+          .logs-panel {
+          background-color: white;
+          border-radius: 8px;
+          padding: 24px;
+          margin-top: 32px;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .logs-title {
+          font-size: 18px;
+          font-weight: 600;
+          color: #1e40af;
+          margin-bottom: 16px;
+          display: flex;
+          align-items: center;
+        }
+
+        .logs-container {
+          overflow-x: auto;
+        }
+
+        .logs-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+
+        .logs-table th,
+        .logs-table td {
+          padding: 12px;
+          text-align: left;
+          border-bottom: 1px solid #e5e7eb;
+        }
+
+        .logs-table th {
+          background-color: #f9fafb;
+          font-weight: 600;
+          color: #4b5563;
+        }
+
+        .log-entry {
+          font-size: 14px;
+        }
+
+        .log-entry.error { color: #dc2626; }
+        .log-entry.warning { color: #d97706; }
+        .log-entry.success { color: #16a34a; }
+        .log-entry.info { color: #2563eb; }
 
         .monitor-title {
           font-size: 24px;
@@ -599,6 +1005,11 @@ const OsmosisMonitor: React.FC = () => {
 
         <div className="monitor-panel">
           <h2 className="monitor-title">
+          <img 
+            src={bwtLogo} 
+            alt="BWT Logo" 
+            className="title-logo"
+          />
             Sistema de Monitorización Osmosis
           </h2>
 
@@ -655,6 +1066,9 @@ const OsmosisMonitor: React.FC = () => {
               </div>
             </div>
           </div>
+          
+        {/* New Logs Section */}
+        <LogsPanel logs={logs} />
         </div>
       </div>
     );
