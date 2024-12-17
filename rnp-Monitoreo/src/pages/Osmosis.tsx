@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
-import { Activity, Droplet, Mail,ServerCrash, AlertCircle, Zap, Heater, Clock } from 'lucide-react';
+import { Activity, Droplet, Mail,ServerCrash, AlertCircle, Zap, Heater, Clock, WifiIcon, RefreshCw, Globe2 } from 'lucide-react';
 import bwtLogo from './bwt.png';  // Importamos el logo
 
 // Types
@@ -71,7 +71,9 @@ const CONFIG = {
         icon: AlertCircle,
         description: '',
         bgColor: '#fef2f2',
-        activeColor: '#dc2626'
+        activeColor: '#dc2626',
+        inverse: true  // Añadimos inverse: true para indicar lógica inversa
+
       },
       {
         key: 'AlertaRoja',
@@ -637,16 +639,14 @@ const OsmosisMonitor: React.FC = () => {
         setSignals(prevSignals => {
           const newSignals = { ...message.estados };
           
-          // Invertir la lógica para las señales específicas
-          newSignals.DepositoBajo = !newSignals.DepositoBajo;
-          
-          // Manejar señales inversas según la configuración
+          // Invertir la lógica para las señales con inverse: true
           CONFIG.alerts.forEach(alert => {
             if (alert.inverse && newSignals[alert.key] !== undefined) {
               newSignals[alert.key] = !newSignals[alert.key];
             }
           });
           
+          // Manejar notificaciones
           Object.entries(newSignals).forEach(([key, value]) => {
             if (value !== prevSignals[key as SignalKey]) {
               const alertConfig = CONFIG.alerts.find(alert => alert.key === key);
@@ -720,287 +720,400 @@ const OsmosisMonitor: React.FC = () => {
   return (
     <div className="osmosis-container">
       <style>{`
-        .osmosis-container {
-          min-height: 100vh;
-          background-color: #f3f4f6;
-          padding: 32px;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-        }
-           .monitor-title {
-          font-size: 24px;
-          font-weight: 700;
-          color: #2563eb;
-          text-align: center;
-          margin-bottom: 32px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 16px;
-        }
+        /* Contenedor principal */
 
-        .title-logo {
-          height: 40px;
-          width: auto;
-          object-fit: contain;
-        }
+/* Base styles and container */
+.osmosis-container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  padding: 2rem;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
 
-        .monitor-panel {
-          background-color: white;
-          border-radius: 12px;
-          padding: 32px;
-          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-          max-width: 1024px;
-          width: 100%;
-        }
-          .logs-panel {
-          background-color: white;
-          border-radius: 8px;
-          padding: 24px;
-          margin-top: 32px;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-        }
+/* Main panel styling */
+.monitor-panel {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+  max-width: 1200px;
+  width: 100%;
+  margin: 2rem auto;
+}
 
-        .logs-title {
-          font-size: 18px;
-          font-weight: 600;
-          color: #1e40af;
-          margin-bottom: 16px;
-          display: flex;
-          align-items: center;
-        }
+/* Header and title */
+.monitor-title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #0f172a;
+  text-align: center;
+  margin-bottom: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
 
-        .logs-container {
-          overflow-x: auto;
-        }
+.title-logo {
+  height: 48px;
+  width: auto;
+  object-fit: contain;
+}
 
-        .logs-table {
-          width: 100%;
-          border-collapse: collapse;
-        }
+/* Grid layout */
+.monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
 
-        .logs-table th,
-        .logs-table td {
-          padding: 12px;
-          text-align: left;
-          border-bottom: 1px solid #e5e7eb;
-        }
+/* Alerts container */
+.alerts-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
 
-        .logs-table th {
-          background-color: #f9fafb;
-          font-weight: 600;
-          color: #4b5563;
-        }
+/* Alert panels */
+.alert-panel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
 
-        .log-entry {
-          font-size: 14px;
-        }
+.alert-panel.active {
+  transform: translateX(4px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
+}
 
-        .log-entry.error { color: #dc2626; }
-        .log-entry.warning { color: #d97706; }
-        .log-entry.success { color: #16a34a; }
-        .log-entry.info { color: #2563eb; }
+/* Status indicator */
+.status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  transition: all 0.3s ease;
+}
 
-        .monitor-title {
-          font-size: 24px;
-          font-weight: 700;
-          color: #2563eb;
-          text-align: center;
-          margin-bottom: 32px;
-        }
+.status-indicator.active {
+  background: currentColor;
+  box-shadow: 0 0 0 4px rgba(currentColor, 0.15);
+  animation: pulse 2s infinite;
+}
 
-        .monitor-grid {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 32px;
-        }
+/* Alert content */
+.alert-content {
+  flex: 1;
+}
 
-        .alerts-container {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
+.alert-title {
+  font-size: 0.975rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 0.25rem;
+}
 
-        .status-panel {
-          background-color: #f9fafb;
-          padding: 24px;
-          border-radius: 8px;
-          border: 1px solid #e5e7eb;
-        }
+.alert-description {
+  font-size: 0.875rem;
+  color: #64748b;
+}
 
-        .status-title {
-          font-size: 18px;
-          font-weight: 600;
-          color: #1e40af;
-          margin-bottom: 16px;
-        }
+/* Status panel */
+.status-panel {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
 
-        .status-content {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
+.status-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
 
-        .status-item {
-          font-size: 14px;
-          color: #4b5563;
-          margin-bottom: 8px;
-        }
+/* Status content grid */
+.status-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
 
-        .status-error {
-          color: #dc2626;
-          font-weight: 600;
-        }
+/* Status items */
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
 
-        .status-indicator {
-          width: 12px;
-          height: 12px;
-          border-radius: 50%;
-          background-color: #9ca3af;
-          transition: background-color 0.3s ease;
-        }
+.status-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
 
-        .status-indicator.active {
-          background-color: white;
-          animation: pulse 2s infinite;
-        }
+/* Status variations */
+.status-item.success {
+  background: linear-gradient(145deg, #f0fdf4, #dcfce7);
+  border-color: #86efac;
+}
 
-        .alert-panel {
-          padding: 16px;
-          border-radius: 8px;
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          transition: all 0.3s ease;
-        }
+.status-item.error {
+  background: linear-gradient(145deg, #fef2f2, #fee2e2);
+  border-color: #fca5a5;
+}
 
-        .alert-panel.active {
-          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
+.status-item.warning {
+  background: linear-gradient(145deg, #fffbeb, #fef3c7);
+  border-color: #fcd34d;
+}
 
-        .alert-content {
-          flex: 1;
-        }
+/* Status icon */
+.status-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  color: #0f172a;
+}
 
-        .alert-title {
-          font-weight: 600;
-          font-size: 16px;
-          margin-bottom: 4px;
-        }
+/* Status details */
+.status-details {
+  flex: 1;
+}
 
-        .alert-description {
-          font-size: 14px;
-          opacity: 0.9;
-        }
+.status-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #64748b;
+  margin-bottom: 0.25rem;
+}
 
-      .notification-panel {
-            position: fixed;
-            top: 16px;
-            right: 16px;
-            z-index: 50;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-          }
+.status-value {
+  font-size: 0.925rem;
+  font-weight: 600;
+  color: #0f172a;
+}
 
-          .notification-item {
-            padding: 16px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            max-width: 320px;
-            animation: slideIn 0.3s ease-out;
-          }
+/* Server info section */
+.server-info {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e2e8f0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
 
-          .notification-item.error {
-            background-color: #fef2f2;
-            border-left: 4px solid #ef4444;
-          }
+/* Notification panel */
+.notification-panel {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
 
-          .notification-item.warning {
-            background-color: #fffbeb;
-            border-left: 4px solid #f59e0b;
-          }
+.notification-item {
+  padding: 1rem;
+  border-radius: 10px;
+  background: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-width: 320px;
+  animation: slideIn 0.3s ease-out;
+}
 
-          .notification-item.success {
-            background-color: #f0fdf4;
-            border-left: 4px solid #22c55e;
-          }
+/* Notification variations */
+.notification-item.error {
+  border-left: 4px solid #ef4444;
+}
 
-          .notification-item.alert {
-            background-color: #eff6ff;
-            border-left: 4px solid #3b82f6;
-          }
+.notification-item.warning {
+  border-left: 4px solid #f59e0b;
+}
 
-          .notification-message {
-            font-size: 14px;
-            color: #374151;
-          }
+.notification-item.success {
+  border-left: 4px solid #10b981;
+}
 
-          .server-info {
-            margin-top: 16px;
-            padding-top: 16px;
-            border-top: 1px solid #e5e7eb;
-          }
+.notification-item.alert {
+  border-left: 4px solid #3b82f6;
+}
 
-          .server-info .status-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            color: #6b7280;
-          }
+.notification-message {
+  font-size: 0.875rem;
+  color: #1e293b;
+  line-height: 1.5;
+}
 
-          .server-info .icon {
-            width: 16px;
-            height: 16px;
-          }
+/* Animations */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(currentColor, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(currentColor, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(currentColor, 0);
+  }
+}
 
-          @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-          }
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
 
-          @keyframes slideIn {
-            from { 
-              transform: translateX(100%);
-              opacity: 0;
-            }
-            to {
-              transform: translateX(0);
-              opacity: 1;
-            }
-          }
+/* Responsive design */
+@media (max-width: 768px) {
+  .osmosis-container {
+    padding: 1rem;
+  }
 
-          @media (min-width: 768px) {
-            .monitor-grid {
-              grid-template-columns: 1fr 1fr;
-            }
-          }
+  .monitor-panel {
+    padding: 1.5rem;
+    margin: 1rem;
+  }
 
-          @media (max-width: 640px) {
-            .osmosis-container {
-              padding: 16px;
-            }
+  .monitor-title {
+    font-size: 1.5rem;
+  }
 
-            .monitor-panel {
-              padding: 16px;
-            }
+  .title-logo {
+    height: 36px;
+  }
 
-            .status-panel {
-              padding: 16px;
-            }
+  .monitor-grid {
+    gap: 1.5rem;
+  }
 
-            .notification-panel {
-              left: 16px;
-              right: 16px;
-            }
+  .status-content {
+    grid-template-columns: 1fr;
+  }
 
-            .notification-item {
-              max-width: none;
-            }
-          }
+  .notification-panel {
+    left: 1rem;
+    right: 1rem;
+  }
+
+  .notification-item {
+    max-width: none;
+  }
+}
+
+/* Logs panel styling */
+.logs-panel {
+  background: white;
+  border-radius: 12px;
+  margin-top: 2rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+.logs-header {
+  padding: 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.logs-title {
+  color: #0f172a;
+  font-size: 1.25rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.logs-container {
+  max-height: 500px;
+  overflow: auto;
+}
+
+.logs-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.logs-table th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #475569;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.logs-table td {
+  padding: 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.875rem;
+}
+
+.log-entry:hover {
+  background-color: #f8fafc;
+}
+
+/* Log entry status colors */
+.log-entry.error { color: #ef4444; }
+.log-entry.warning { color: #f59e0b; }
+.log-entry.success { color: #10b981; }
+.log-entry.info { color: #3b82f6; }
+
+.empty-message {
+  text-align: center;
+  color: #64748b;
+  padding: 2rem;
+  font-style: italic;
+}
+
+.error-message {
+  padding: 1rem;
+  color: #ef4444;
+  background-color: #fef2f2;
+  border-radius: 8px;
+  margin: 1rem;
+}
         `}</style>
 
         <div className="monitor-panel">
@@ -1027,44 +1140,69 @@ const OsmosisMonitor: React.FC = () => {
             </div>
 
             <div className="status-panel">
-              <h3 className="status-title">
-                Estado del Sistema
-              </h3>
-              
-              <div className="status-content">
-                <div className={`status-item ${
-                  connectionStatus.includes('Error') ? 'status-error' : ''
-                }`}>
-                  Estado: {connectionStatus}
-                </div>
-                
-                <div className="status-item">
-                  Última actualización: {
-                    lastUpdate 
-                      ? new Date(lastUpdate).toLocaleString() 
-                      : 'Sin actualizaciones'
-                  }
-                </div>
-                
-                <div className="status-item">
-                  Intentos de reconexión: {reconnectAttempts}/{CONFIG.ws.maxReconnectAttempts}
-                </div>
-
-                <div className="server-info">
-                  <div className="status-item">
-                    <Mail className="icon" />
-                    Estado de conexión: {
-                      connectionStatus === 'Conectado' 
-                        ? 'Activo' 
-                        : 'Desconectado'
-                    }
-                  </div>
-                  <div className="status-item">
-                    WebSocket: {CONFIG.ws.url}
-                  </div>
+          <h3 className="status-title">
+            <Globe2 size={24} />
+            Estado del Sistema
+          </h3>
+          
+          <div className="status-content">
+            <div className={`status-item ${connectionStatus.includes('Error') ? 'error' : connectionStatus === 'Conectado' ? 'success' : 'warning'}`}>
+              <div className="status-icon">
+                <WifiIcon size={20} />
+              </div>
+              <div className="status-details">
+                <div className="status-label">Estado de Conexión</div>
+                <div className="status-value">{connectionStatus}</div>
+              </div>
+            </div>
+            
+            <div className="status-item">
+              <div className="status-icon">
+                <Clock size={20} />
+              </div>
+              <div className="status-details">
+                <div className="status-label">Última Actualización</div>
+                <div className="status-value">
+                  {lastUpdate ? new Date(lastUpdate).toLocaleString() : 'Sin actualizaciones'}
                 </div>
               </div>
             </div>
+            
+            <div className={`status-item ${reconnectAttempts > 0 ? 'warning' : 'success'}`}>
+              <div className="status-icon">
+                <RefreshCw size={20} />
+              </div>
+              <div className="status-details">
+                <div className="status-label">Intentos de Reconexión</div>
+                <div className="status-value">{reconnectAttempts}/{CONFIG.ws.maxReconnectAttempts}</div>
+              </div>
+            </div>
+
+            <div className="server-info">
+              <div className={`status-item ${connectionStatus === 'Conectado' ? 'success' : 'warning'}`}>
+                <div className="status-icon">
+                  <Mail size={20} />
+                </div>
+                <div className="status-details">
+                  <div className="status-label">Estado de Servicio</div>
+                  <div className="status-value">
+                    {connectionStatus === 'Conectado' ? 'Activo' : 'Desconectado'}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="status-item">
+                <div className="status-icon">
+                  <Globe2 size={20} />
+                </div>
+                <div className="status-details">
+                  <div className="status-label">WebSocket URL</div>
+                  <div className="status-value">{CONFIG.ws.url}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
           </div>
           
         {/* New Logs Section */}
